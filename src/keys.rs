@@ -2,7 +2,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD_NO_PAD;
 use hpke::{Deserializable, Kem as KemTrait, Serializable};
 use rand_core::CryptoRng;
-use zeroize::Zeroizing;
+use zeroize::{ZeroizeOnDrop, Zeroizing};
 
 use crate::{Error, XKem};
 
@@ -10,9 +10,19 @@ use crate::{Error, XKem};
 ///
 /// The X-Wing KEM is used which uses ML-KEM-768 (Kyber) and X25519 under
 /// the hood.
-// TODO: Implement zeroize
 #[derive(Clone, PartialEq, Eq)]
 pub struct SecretKey(<XKem as KemTrait>::PrivateKey);
+
+/// `SecretKey` wraps hpke's X-Wing `PrivateKey`, which stores an
+/// `x_wing::DecapsulationKey`. That key implements `ZeroizeOnDrop`, so
+/// dropping a `SecretKey` wipes the only secret it holds.
+impl ZeroizeOnDrop for SecretKey {}
+
+/// Statically assert the guarantee the `ZeroizeOnDrop` impl above relies on
+const _: fn() = || {
+    fn assert_zeroize_on_drop<T: ZeroizeOnDrop>() {}
+    assert_zeroize_on_drop::<x_wing::DecapsulationKey>();
+};
 
 /// The public component of the encapsulation key. This is usually the key
 /// of the recipient.
