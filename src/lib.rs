@@ -19,8 +19,8 @@ pub(crate) type XKem = XWing;
 /// over AES-GCM because `ChaCha20` is constant-time on any hardware and generally more portable. Also
 /// inspired on libsodium's sealed box choice (`Salsa20-Poly1305`).
 pub(crate) type Aead = ChaCha20Poly1305;
-/// The key derivation function. `SHA256` is used because it matches the 128-bit security
-/// of `Kyber-768` used in X-Wing.
+/// The key derivation function. `HKDF-SHA256` is used because its 128-bit security level
+/// matches the 128-bit (NIST PQC Level 1) target of the X-Wing KEM.
 pub(crate) type Kdf = HkdfSha256;
 
 /// Internal wire format version. Applicable only to this implementation.
