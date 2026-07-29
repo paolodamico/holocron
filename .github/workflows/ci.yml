@@ -96,3 +96,33 @@ jobs:
         with:
           command: check ${{ matrix.checks }}
           rust-version: 1.94
+
+  fuzz:
+    name: Fuzz
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2 (https://github.com/actions/checkout/releases/tag/v6.0.2)
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable branch HEAD as of 2026-05-20 (https://github.com/dtolnay/rust-toolchain/tree/stable)
+        with:
+          toolchain: nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked --version 0.13.2
+
+      - name: Build fuzz targets
+        run: cargo fuzz build
+
+      # A short campaign per target guards against regressions
+      - name: Smoke-run fuzz targets
+        run: |
+          cargo fuzz run unseal -- -dict=fuzz/holocron.dict -max_total_time=30
+          cargo fuzz run public_key -- -max_total_time=30
+          cargo fuzz run roundtrip -- -max_total_time=30
