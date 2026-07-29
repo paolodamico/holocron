@@ -1,8 +1,11 @@
 #![doc = include_str!("../README.md")]
 
 use hpke::{
-    HpkeError, OpModeS, Serializable, aead::ChaCha20Poly1305, kdf::HkdfSha256, kem::XWing,
-    single_shot_seal_with_rng,
+    Deserializable, HpkeError, OpModeR, OpModeS, Serializable,
+    aead::ChaCha20Poly1305,
+    kdf::HkdfSha256,
+    kem::{Kem as KemTrait, XWing},
+    single_shot_open, single_shot_seal_with_rng,
 };
 
 mod keys;
@@ -12,8 +15,12 @@ use x_wing::CryptoRng;
 /// The KEM (Key Encapsulation Mechanism) used: X-Wing is chosen
 /// for its IND-CCA security. Reference: <https://eprint.iacr.org/2024/039.pdf>
 pub(crate) type XKem = XWing;
-
+/// The Authenticated Encryption (AEAD) algorithm used. `ChaCha20Poly1305` is selected
+/// over AES-GCM because `ChaCha20` is constant-time on any hardware and generally more portable. Also
+/// inspired on libsodium's sealed box choice (`Salsa20-Poly1305`).
 pub(crate) type Aead = ChaCha20Poly1305;
+/// The key derivation function. `SHA256` is used because it matches the 128-bit security
+/// of `Kyber-768` used in X-Wing.
 pub(crate) type Kdf = HkdfSha256;
 
 /// Internal wire format version. Applicable only to this implementation.
@@ -43,7 +50,7 @@ const AEAD_ID: u16 = 0x0003;
 ///
 /// # Security
 /// The header is neither encrypted nor authenticated, it is added only
-/// to future proof for different cryptographic primitives or encoding format.
+/// to future-proof for the cryptographic suite used and encoding format.
 const HEADER: [u8; 7] = {
     let kem = KEM_ID.to_be_bytes();
     let kdf = KDF_ID.to_be_bytes();
@@ -51,6 +58,10 @@ const HEADER: [u8; 7] = {
     [VERSION, kem[0], kem[1], kdf[0], kdf[1], aead[0], aead[1]]
 };
 const HEADER_LEN: usize = HEADER.len();
+/// X-Wing encapsulated key size: ML-KEM-768 ciphertext (1088) + X25519 (32).
+///
+/// See also `XWing::EncappedKey::OutputSize`
+const ENC_LEN: usize = 1120;
 
 impl PublicKey {
     /// Seal `plaintext` to the `recipient`'s public key. This is analogous to
@@ -102,6 +113,62 @@ impl PublicKey {
     }
 }
 
+impl SecretKey {
+    /// Unseal `ciphertext` with the `recipient`'s secret key.
+    ///
+    /// # Returns
+    /// The opened plaintext.
+    ///
+    /// # Errors
+    /// - [`Error::Decode`] if the ciphertext is invalid
+    /// - [`Error::UnsupportedVersion`] if the header specifies an unsupported version.
+    /// - [`Error::UnsupportedSuite`] if the header specifices an unsupported cryptographic suite.
+    /// - [`Error::Unseal`] if the ciphertext cannot be unsealed.
+    pub fn unseal(
+        recipient: &SecretKey,
+        ciphertext: &[u8],
+        info: Option<&[u8]>,
+    ) -> Result<Vec<u8>, Error> {
+        let Some((&[version, kem0, kem1, kdf0, kdf1, aead0, adead1], ciphertext)) =
+            ciphertext.split_first_chunk::<HEADER_LEN>()
+        else {
+            return Err(Error::Decode);
+        };
+
+        if version != VERSION {
+            return Err(Error::UnsupportedVersion(version));
+        }
+
+        let (kem_id, kdf_id, aead_id) = (
+            u16::from_be_bytes([kem0, kem1]),
+            u16::from_be_bytes([kdf0, kdf1]),
+            u16::from_be_bytes([aead0, adead1]),
+        );
+
+        if (kem_id, kdf_id, aead_id) != (KEM_ID, KDF_ID, AEAD_ID) {
+            return Err(Error::UnsupportedSuite);
+        }
+
+        let Some((enc_bytes, ciphertext)) = ciphertext.split_first_chunk::<ENC_LEN>() else {
+            return Err(Error::Decode);
+        };
+
+        let enc = <XKem as KemTrait>::EncappedKey::from_bytes(enc_bytes)?;
+
+        let plaintext = single_shot_open::<Aead, Kdf, XKem>(
+            &OpModeR::Base,
+            recipient.as_hpke(),
+            &enc,
+            info.unwrap_or_default(),
+            ciphertext,
+            // Explicitly empty associated data
+            &[],
+        )?;
+
+        Ok(plaintext)
+    }
+}
+
 /// Failure modes with encryption or keys
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
@@ -115,21 +182,27 @@ pub enum Error {
     /// KEM decapsulation failed.
     #[error("decapsulation failed")]
     Decap,
-    /// AEAD authentication failed: tampered ciphertext or wrong recipient.
-    #[error("AEAD authentication failed")]
-    Open,
+    /// AEAD authentication failed: tampered ciphertext, wrong recipient, wrong `info`.
+    #[error("unable to unseal: AEAD authentication failed")]
+    Unseal,
     /// Sealing the message failed.
     #[error("seal unexpectedly failed")]
     Seal,
     /// An HPKE state that this construction never produces. Critical library bug.
     #[error("internal critical bug")]
     Internal,
+    /// The provided ciphertext contains an invalid or unsupported version.
+    #[error("unsupported version: {0}")]
+    UnsupportedVersion(u8),
+    /// The provided ciphertext specifies an unsupported cryptographic suite.
+    #[error("unsupported suite")]
+    UnsupportedSuite,
 }
 
 impl From<HpkeError> for Error {
     fn from(e: HpkeError) -> Self {
         match e {
-            HpkeError::OpenError => Error::Open,
+            HpkeError::OpenError => Error::Unseal,
             HpkeError::DecapError => Error::Decap,
             HpkeError::EncapError | HpkeError::SealError => Error::Seal,
             HpkeError::ValidationError | HpkeError::IncorrectInputLength(_, _) => Error::Decode,
@@ -137,5 +210,197 @@ impl From<HpkeError> for Error {
             | HpkeError::KdfOutputTooLong
             | HpkeError::InvalidPskBundle => Error::Internal,
         }
+    }
+}
+
+#[expect(clippy::unwrap_used, reason = "clearer in tests")]
+#[cfg(test)]
+mod tests {
+    use super::{ENC_LEN, Error, HEADER, HEADER_LEN, PublicKey, SecretKey, VERSION};
+    use getrandom::SysRng;
+    use rand_core::UnwrapErr;
+
+    /// `Poly-1305` authentication tag length
+    ///
+    /// Reference: <https://en.wikipedia.org/wiki/Poly1305>
+    const TAG_LEN: usize = 16;
+
+    fn keypair(seed: &[u8; 32]) -> (SecretKey, PublicKey) {
+        let sk = SecretKey::from_seed(seed);
+        let pk = sk.public_key();
+        (sk, pk)
+    }
+
+    #[test]
+    fn seal_unseal_roundtrip() {
+        let (sk, pk) = keypair(&[7u8; 32]);
+        let msg: &[u8] = b"execute order 66";
+
+        let sealed = PublicKey::seal(&pk, msg, None, &mut UnwrapErr(SysRng)).unwrap();
+
+        let unsealed = SecretKey::unseal(&sk, &sealed, None).unwrap();
+
+        assert_eq!(unsealed, msg);
+    }
+
+    #[test]
+    fn roundtrips_empty_plaintext() {
+        let (sk, pk) = keypair(&[0u8; 32]);
+
+        let sealed = PublicKey::seal(&pk, &[], None, &mut UnwrapErr(SysRng)).unwrap();
+        assert!(!sealed.is_empty());
+
+        let unsealed = SecretKey::unseal(&sk, &sealed, None).unwrap();
+
+        assert!(unsealed.is_empty());
+    }
+
+    #[test]
+    fn roundtrips_with_matching_info() {
+        let (sk, pk) = keypair(&[3u8; 32]);
+        let msg: &[u8] = b"never tell me the odds";
+        let info: &[u8] = b"com.example";
+
+        let sealed = PublicKey::seal(&pk, msg, Some(info), &mut UnwrapErr(SysRng)).unwrap();
+
+        let unsealed = SecretKey::unseal(&sk, &sealed, Some(info)).unwrap();
+
+        assert_eq!(unsealed, msg);
+    }
+
+    #[test]
+    fn unseal_fails_with_mismatched_info() {
+        let (sk, pk) = keypair(&[4u8; 32]);
+
+        let sealed = PublicKey::seal(
+            &pk,
+            b"it's a trap",
+            Some(b"context-a"),
+            &mut UnwrapErr(SysRng),
+        )
+        .unwrap();
+
+        assert_eq!(
+            SecretKey::unseal(&sk, &sealed, Some(b"context-b")),
+            Err(Error::Unseal)
+        );
+    }
+
+    #[test]
+    fn unseal_fails_with_wrong_recipient() {
+        let (_sk, pk) = keypair(&[1u8; 32]);
+        let (other_sk, _other_pk) = keypair(&[2u8; 32]);
+
+        let sealed = PublicKey::seal(
+            &pk,
+            b"for my eyes only",
+            Some(b"context-a"),
+            &mut UnwrapErr(SysRng),
+        )
+        .unwrap();
+
+        assert_eq!(
+            SecretKey::unseal(&other_sk, &sealed, None),
+            Err(Error::Unseal)
+        );
+    }
+
+    #[test]
+    fn unseal_fails_on_tampered_ciphertext() {
+        let (sk, pk) = keypair(&[9u8; 32]);
+
+        let sealed =
+            PublicKey::seal(&pk, b"execute order 66", None, &mut UnwrapErr(SysRng)).unwrap();
+
+        let mut tampered = sealed.clone();
+        let last = tampered.len() - 1;
+        tampered[last] ^= 0x01;
+
+        assert_eq!(SecretKey::unseal(&sk, &tampered, None), Err(Error::Unseal));
+    }
+
+    #[test]
+    fn unseal_rejects_ciphertext_shorter_than_header() {
+        let (sk, _pk) = keypair(&[1u8; 32]);
+
+        assert_eq!(SecretKey::unseal(&sk, b"short", None), Err(Error::Decode));
+    }
+
+    #[test]
+    fn unseal_rejects_truncated_encapsulated_key() {
+        let (sk, pk) = keypair(&[6u8; 32]);
+
+        let sealed = PublicKey::seal(
+            &pk,
+            b"this message will self-destruct",
+            None,
+            &mut UnwrapErr(SysRng),
+        )
+        .unwrap();
+
+        // Valid header, but the encapsulated key is cut short.
+        let truncated = &sealed[..HEADER_LEN + 10];
+
+        assert_eq!(SecretKey::unseal(&sk, truncated, None), Err(Error::Decode));
+    }
+
+    #[test]
+    fn unseal_rejects_unsupported_version() {
+        let (sk, pk) = keypair(&[1u8; 32]);
+
+        let sealed = PublicKey::seal(&pk, b"hello there", None, &mut UnwrapErr(SysRng)).unwrap();
+        let mut bad = sealed.clone();
+        let bad_version = VERSION.wrapping_add(1);
+        bad[0] = bad_version;
+
+        assert_eq!(
+            SecretKey::unseal(&sk, &bad, None),
+            Err(Error::UnsupportedVersion(bad_version))
+        );
+    }
+
+    #[test]
+    fn unseal_rejects_unsupported_suite() {
+        let (sk, pk) = keypair(&[1u8; 32]);
+
+        let sealed = PublicKey::seal(&pk, b"hello there", None, &mut UnwrapErr(SysRng)).unwrap();
+        let mut bad = sealed.clone();
+        bad[1] ^= 0xFF; // Corrupt a KEM ID byte
+
+        assert_eq!(
+            SecretKey::unseal(&sk, &bad, None),
+            Err(Error::UnsupportedSuite)
+        );
+    }
+
+    #[test]
+    fn seal_prepends_wire_header() {
+        let (_sk, pk) = keypair(&[1u8; 32]);
+
+        let sealed = PublicKey::seal(&pk, b"hello there", None, &mut UnwrapErr(SysRng)).unwrap();
+
+        assert_eq!(&sealed[..HEADER_LEN], &HEADER);
+    }
+
+    #[test]
+    fn seal_output_has_expected_length() {
+        let (_sk, pk) = keypair(&[1u8; 32]);
+        let msg: &[u8] = b"hello there";
+
+        let sealed = PublicKey::seal(&pk, msg, None, &mut UnwrapErr(SysRng)).unwrap();
+
+        // HEADER || ENCAPSULATED_KEY || len(plaintext + authentication tag)
+        assert_eq!(sealed.len(), HEADER_LEN + ENC_LEN + msg.len() + TAG_LEN);
+    }
+
+    #[test]
+    fn seal_is_non_deterministic() {
+        let (_sk, pk) = keypair(&[1u8; 32]);
+        let msg: &[u8] = b"same message";
+
+        let sealed = PublicKey::seal(&pk, msg, None, &mut UnwrapErr(SysRng)).unwrap();
+        let sealed2 = PublicKey::seal(&pk, msg, None, &mut UnwrapErr(SysRng)).unwrap();
+
+        assert_ne!(sealed, sealed2);
     }
 }
