@@ -16,7 +16,7 @@ The name "Holocron" comes from following the Star Wars lore (Kyber, X-Wing, ...)
 ## Design Choices
 
 1. The primary scheme is **Hybrid Public Key Encryption (HPKE)** from [RFC 9180](https://www.rfc-editor.org/info/rfc9180) which defines the glue for a hybrid KEM, a KDF and authenticated encryption (AEAD). This is implemented through the [hpke](https://github.com/rozbb/rust-hpke) crate. HPKE is already used in some TLS schemes, MLS and OHTTP.
-2. The Key Encapsulation Mechanism (KEM) choice is `X-Wing` [draft-connolly-cfrg-xwing-kem-10](https://datatracker.ietf.org/doc/draft-connolly-cfrg-xwing-kem/) and [paper](https://eprint.iacr.org/2024/039) which is IND-CCA secure (internally it uses `ML-KEM-768` prev. `Kyber-768` and `X25519` curve). The X-Wing implementation comes from RustCrypto's [crate](https://github.com/RustCrypto/KEMs/tree/master/x-wing).
+2. The Key Encapsulation Mechanism (KEM) choice is `X-Wing` [draft-connolly-cfrg-xwing-kem-06](https://datatracker.ietf.org/doc/html/draft-connolly-cfrg-xwing-kem-06) and [paper](https://eprint.iacr.org/2024/039) which is IND-CCA secure (internally it uses `ML-KEM-768` prev. `Kyber-768` and `X25519` curve). The X-Wing implementation comes from RustCrypto's [crate](https://github.com/RustCrypto/KEMs/tree/master/x-wing).
 3. The KDF is `HKDF-SHA-256` matching the 128-bit security of `ML-KEM-768`.
 4. The AEAD is `ChaCha20-Poly1305` which is constant time on any hardware. The decision is to maximize portability.
 
