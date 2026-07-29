@@ -1,5 +1,6 @@
 # Holocron
 
+<img src="header-image.jpg" alt ="" width="250px" />
 
 > [!WARNING]  
 > This code is currently **UNAUDITED**. Please be careful with any use. Furthermore, the underlying `hpke` library has only undergone an informal review in version 0.8 and the `x-wing` library has also not been independently audited.
