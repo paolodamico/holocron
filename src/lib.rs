@@ -62,6 +62,10 @@ const HEADER_LEN: usize = HEADER.len();
 ///
 /// See also `XWing::EncappedKey::OutputSize`
 const ENC_LEN: usize = 1120;
+/// Maximum permitted `info` length.
+///
+/// hpke's key schedule panics when `info.len() + psk_id.len() + 5 ≥ 2^16`
+const MAX_INFO_LEN: usize = (2 ^ 16) - 1 - 5;
 
 impl PublicKey {
     /// Seal `plaintext` to the `recipient`'s public key. This is analogous to
@@ -93,6 +97,10 @@ impl PublicKey {
         info: Option<&[u8]>,
         rng: &mut R,
     ) -> Result<Vec<u8>, Error> {
+        if info.unwrap_or_default().len() > MAX_INFO_LEN {
+            return Err(Error::InfoExceedsSize);
+        }
+
         let (enc, ciphertext) = single_shot_seal_with_rng::<Aead, Kdf, XKem>(
             &OpModeS::Base,
             recipient.as_hpke(),
@@ -129,6 +137,10 @@ impl SecretKey {
         ciphertext: &[u8],
         info: Option<&[u8]>,
     ) -> Result<Vec<u8>, Error> {
+        if info.unwrap_or_default().len() > MAX_INFO_LEN {
+            return Err(Error::InfoExceedsSize);
+        }
+
         let Some((&[version, kem0, kem1, kdf0, kdf1, aead0, adead1], ciphertext)) =
             ciphertext.split_first_chunk::<HEADER_LEN>()
         else {
@@ -197,6 +209,9 @@ pub enum Error {
     /// The provided ciphertext specifies an unsupported cryptographic suite.
     #[error("unsupported suite")]
     UnsupportedSuite,
+    /// The provided `info` exceeds the max size
+    #[error("info exceeds max size")]
+    InfoExceedsSize,
 }
 
 impl From<HpkeError> for Error {
@@ -216,7 +231,7 @@ impl From<HpkeError> for Error {
 #[expect(clippy::unwrap_used, reason = "clearer in tests")]
 #[cfg(test)]
 mod tests {
-    use super::{ENC_LEN, Error, HEADER, HEADER_LEN, PublicKey, SecretKey, VERSION};
+    use super::{ENC_LEN, Error, HEADER, HEADER_LEN, MAX_INFO_LEN, PublicKey, SecretKey, VERSION};
     use getrandom::SysRng;
     use rand_core::UnwrapErr;
 
@@ -397,5 +412,40 @@ mod tests {
         let sealed2 = PublicKey::seal(&pk, msg, None, &mut UnwrapErr(SysRng)).unwrap();
 
         assert_ne!(sealed, sealed2);
+    }
+
+    #[test]
+    fn seal_and_unseal_accept_info_at_max_len() {
+        let (sk, pk) = keypair(&[1u8; 32]);
+        let msg: &[u8] = b"boundary";
+        let info = vec![0x2a; MAX_INFO_LEN];
+
+        let sealed = PublicKey::seal(&pk, msg, Some(&info), &mut UnwrapErr(SysRng)).unwrap();
+        let unsealed = SecretKey::unseal(&sk, &sealed, Some(&info)).unwrap();
+
+        assert_eq!(unsealed, msg);
+    }
+
+    #[test]
+    fn seal_rejects_info_over_max_len() {
+        let (_sk, pk) = keypair(&[1u8; 32]);
+        let info = vec![0x2a; MAX_INFO_LEN + 1];
+
+        assert_eq!(
+            PublicKey::seal(&pk, b"nope", Some(&info), &mut UnwrapErr(SysRng)),
+            Err(Error::InfoExceedsSize)
+        );
+    }
+
+    #[test]
+    fn unseal_rejects_info_over_max_len() {
+        let (sk, pk) = keypair(&[1u8; 32]);
+        let sealed = PublicKey::seal(&pk, b"nope", None, &mut UnwrapErr(SysRng)).unwrap();
+        let info = vec![0x2a; MAX_INFO_LEN + 1];
+
+        assert_eq!(
+            SecretKey::unseal(&sk, &sealed, Some(&info)),
+            Err(Error::InfoExceedsSize)
+        );
     }
 }
