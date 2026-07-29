@@ -1,6 +1,6 @@
-# Holocron
-
 <img src="header-image.jpg" alt ="" width="250px" />
+
+# Holocron
 
 > [!WARNING]  
 > This code is currently **UNAUDITED**. Please be careful with any use. Furthermore, the underlying `hpke` library has only undergone an informal review in version 0.8 and the `x-wing` library has also not been independently audited.
@@ -10,6 +10,8 @@ This is a reference implementation of a sealed box with hybrid key derivation (p
 The motivation for this implementation is to follow libsodium's design but implementing a key encapsulation mechanism that already incorporates a quantum-resistant algorithm. The (few) design choices made here follow the principle that the ciphertext will remain secure as long as the security of either the classical **OR** post-quantum algorithms holds.
 
 This implementation does not roll its own cryptography, there are no cryptographic algorithms or ciphers being implemented here, this is rather a reference implementation of a specific standardized ciphersuite choice and the wiring/encoding format.
+
+The name "Holocron" comes from following the Star Wars lore (Kyber, X-Wing, ...)
 
 ## Design Choices
 
