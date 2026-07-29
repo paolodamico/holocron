@@ -65,7 +65,7 @@ const ENC_LEN: usize = 1120;
 /// Maximum permitted `info` length.
 ///
 /// hpke's key schedule panics when `info.len() + psk_id.len() + 5 ≥ 2^16`
-const MAX_INFO_LEN: usize = (2 ^ 16) - 1 - 5;
+const MAX_INFO_LEN: usize = (1 << 16) - 1 - 5;
 
 impl PublicKey {
     /// Seal `plaintext` to the `recipient`'s public key. This is analogous to
@@ -418,7 +418,7 @@ mod tests {
     fn seal_and_unseal_accept_info_at_max_len() {
         let (sk, pk) = keypair(&[1u8; 32]);
         let msg: &[u8] = b"boundary";
-        let info = vec![0x2a; MAX_INFO_LEN];
+        let info = vec![0x2a; 2_usize.pow(16) - 5 - 1];
 
         let sealed = PublicKey::seal(&pk, msg, Some(&info), &mut UnwrapErr(SysRng)).unwrap();
         let unsealed = SecretKey::unseal(&sk, &sealed, Some(&info)).unwrap();
