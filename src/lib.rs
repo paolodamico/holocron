@@ -291,13 +291,8 @@ mod tests {
         let (_sk, pk) = keypair(&[1u8; 32]);
         let (other_sk, _other_pk) = keypair(&[2u8; 32]);
 
-        let sealed = PublicKey::seal(
-            &pk,
-            b"for my eyes only",
-            Some(b"context-a"),
-            &mut UnwrapErr(SysRng),
-        )
-        .unwrap();
+        let sealed =
+            PublicKey::seal(&pk, b"for my eyes only", None, &mut UnwrapErr(SysRng)).unwrap();
 
         assert_eq!(
             SecretKey::unseal(&other_sk, &sealed, None),
