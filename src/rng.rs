@@ -5,7 +5,7 @@
 //! outright. As such, the library makes the opinionated decision of drawing from
 //! the OS randomness source directly, to avoid implementation mistakes.
 use getrandom::SysRng;
-use rand_core::UnwrapErr;
+use getrandom::rand_core::UnwrapErr;
 
 use crate::Error;
 
@@ -18,7 +18,7 @@ pub(crate) fn fill(dst: &mut [u8]) -> Result<(), Error> {
 }
 
 /// A ready-to-use OS CSPRNG handle for dependencies that drive the RNG through
-/// an infallible [`rand_core::CryptoRng`] (namely hpke encapsulation).
+/// an infallible [`getrandom::rand_core::CryptoRng`] (namely hpke encapsulation).
 ///
 /// The OS CSPRNG is checked for availability up front so that an unavailable
 /// source is reported as [`Error::Rng`] rather than a panic.

@@ -196,7 +196,6 @@ dependencies = [
  "getrandom",
  "hex",
  "hpke",
- "rand_core",
  "serde_json",
  "thiserror",
  "x-wing",
