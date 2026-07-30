@@ -9,6 +9,7 @@ exclude = ["header-full.jpg"]
 
 [dependencies]
 base64 = "0.22"
+getrandom = { version = "0.4", features = ["sys_rng"] }
 hpke = { version = "0.14", default-features = false, features = ["alloc", "chacha", "mlkem", "x25519"] }
 rand_core = "0.10"
 thiserror = "2"
@@ -16,7 +17,6 @@ x-wing = { version = "0.1", features = ["zeroize"] }
 zeroize = "1"
 
 [dev-dependencies]
-getrandom = { version = "0.4", features = ["sys_rng"] }
 hex = "0.4"
 serde_json = "1"
 

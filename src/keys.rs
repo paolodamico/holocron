@@ -1,10 +1,9 @@
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD_NO_PAD;
 use hpke::{Deserializable, Kem as KemTrait, Serializable};
-use rand_core::CryptoRng;
 use zeroize::{ZeroizeOnDrop, Zeroizing};
 
-use crate::{Error, XKem};
+use crate::{Error, XKem, rng};
 
 /// The private key used for key encapsulation and encryption.
 ///
@@ -41,11 +40,19 @@ impl SecretKey {
         Self(sk)
     }
 
-    /// Initializes a new secret key using the provided CSPRNG.
-    pub fn rand<R: CryptoRng>(rng: &mut R) -> Self {
+    /// Generate a new secret key from the operating system CSPRNG.
+    ///
+    /// The randomness source is owned by the library rather than caller-supplied:
+    /// a deterministic or repeated RNG would produce a predictable or duplicated
+    /// key seed, exposing the secret key. For deterministic derivation from a
+    /// known seed, use [`SecretKey::from_seed`].
+    ///
+    /// # Errors
+    /// [`Error::Rng`] if the operating system CSPRNG is unavailable.
+    pub fn generate() -> Result<Self, Error> {
         let mut seed = Zeroizing::new([0u8; 32]);
-        rng.fill_bytes(&mut seed[..]);
-        Self::from_seed(&seed)
+        rng::fill(&mut seed[..])?;
+        Ok(Self::from_seed(&seed))
     }
 
     pub(crate) fn as_hpke(&self) -> &<XKem as KemTrait>::PrivateKey {
@@ -97,13 +104,13 @@ impl std::fmt::Display for PublicKey {
     }
 }
 
+#[expect(clippy::unwrap_used, reason = "clearer in tests")]
 #[cfg(test)]
 mod tests {
     use super::{Error, PublicKey, SecretKey};
     use base64::Engine;
     use base64::engine::general_purpose::STANDARD_NO_PAD;
-    use getrandom::SysRng;
-    use rand_core::UnwrapErr;
+    use std::collections::HashSet;
 
     /// X-Wing encapsulation key size: ML-KEM-768 (1184) + X25519 (32).
     const PUBLIC_KEY_LEN: usize = 1216;
@@ -126,12 +133,13 @@ mod tests {
     }
 
     #[test]
-    fn rand_produces_distinct_keys() {
-        let mut rng = UnwrapErr(SysRng);
-        let a = SecretKey::rand(&mut rng);
-        let b = SecretKey::rand(&mut rng);
-
-        assert_ne!(a.public_key(), b.public_key());
+    fn generate_produces_distinct_keys() {
+        let mut seen = HashSet::new();
+        for _ in 0..32 {
+            let pk = SecretKey::generate().unwrap().public_key();
+            assert!(seen.insert(pk.to_bytes()), "generated key seed collided");
+        }
+        assert_eq!(seen.len(), 32);
     }
 
     #[test]
