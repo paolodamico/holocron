@@ -133,6 +133,7 @@ impl SecretKey {
     /// The opened plaintext.
     ///
     /// # Errors
+    /// - [`Error::EmptyCiphertext`] if the ciphertext is empty.
     /// - [`Error::Decode`] if the ciphertext is invalid
     /// - [`Error::UnsupportedVersion`] if the header specifies an unsupported version.
     /// - [`Error::UnsupportedSuite`] if the header specifices an unsupported cryptographic suite.
@@ -144,6 +145,10 @@ impl SecretKey {
     ) -> Result<Vec<u8>, Error> {
         if info.unwrap_or_default().len() > MAX_INFO_LEN {
             return Err(Error::InfoExceedsSize);
+        }
+
+        if ciphertext.is_empty() {
+            return Err(Error::EmptyCiphertext);
         }
 
         let Some((&[version, kem0, kem1, kdf0, kdf1, aead0, adead1], ciphertext)) =
@@ -221,6 +226,9 @@ pub enum Error {
     /// The provided `info` exceeds the max size
     #[error("info exceeds max size")]
     InfoExceedsSize,
+    /// The provided ciphertext is empty
+    #[error("empty ciphertext")]
+    EmptyCiphertext,
 }
 
 impl From<HpkeError> for Error {
@@ -327,6 +335,16 @@ mod tests {
         tampered[last] ^= 0x01;
 
         assert_eq!(SecretKey::unseal(&sk, &tampered, None), Err(Error::Unseal));
+    }
+
+    #[test]
+    fn unseal_rejects_empty_ciphertext() {
+        let (sk, _pk) = keypair(&[1u8; 32]);
+
+        assert_eq!(
+            SecretKey::unseal(&sk, b"", None),
+            Err(Error::EmptyCiphertext)
+        );
     }
 
     #[test]
