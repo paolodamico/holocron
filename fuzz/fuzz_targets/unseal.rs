@@ -10,8 +10,6 @@
 
 use holocron::{PublicKey, SecretKey};
 use libfuzzer_sys::fuzz_target;
-use rand_chacha::ChaCha20Rng;
-use rand_chacha::rand_core::SeedableRng;
 use std::sync::LazyLock;
 
 /// A fixed recipient. Key material is not the fuzzed surface here — the
@@ -21,8 +19,7 @@ static RECIPIENT: LazyLock<SecretKey> = LazyLock::new(|| SecretKey::from_seed(&[
 /// The smallest possible sealed message: header + encapsulated key + AEAD tag
 /// over an empty plaintext
 static MIN_SEALED: LazyLock<Vec<u8>> = LazyLock::new(|| {
-    let mut rng = ChaCha20Rng::from_seed([0xAB; 32]);
-    PublicKey::seal(&RECIPIENT.public_key(), b"", None, &mut rng)
+    PublicKey::seal(&RECIPIENT.public_key(), b"", None)
         .expect("sealing an empty plaintext to a valid recipient must succeed")
 });
 
