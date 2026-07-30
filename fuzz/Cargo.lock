@@ -199,6 +199,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "r-efi",
+ "rand_core",
 ]
 
 [[package]]
@@ -224,8 +225,8 @@ name = "holocron"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "getrandom",
  "hpke",
- "rand_core",
  "thiserror",
  "x-wing",
  "zeroize",
