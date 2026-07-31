@@ -43,9 +43,4 @@ assert_eq!(unsealed, msg);
 
 ## Platform support
 
-Randomness comes from the operating system CSPRNG via [`getrandom`](https://docs.rs/getrandom). Particularly for the browser (`wasm32-unknown-unknown` target) an explicit backend must be specified for the randomness source. This can be done with the Web Crypto backend for instance:
-
-```toml
-# In the wasm application's Cargo.toml
-getrandom = { version = "0.4", features = ["wasm_js"] }
-```
+Randomness comes from the operating system CSPRNG via [`getrandom`](https://docs.rs/getrandom). Particularly for the browser (`wasm32-unknown-unknown` target) an explicit backend must be specified for the randomness source. For web targets, enable the `wasm_js` feature flag which uses [`Crypto.getRandomValues`](https://www.w3.org/TR/WebCryptoAPI/#Crypto-method-getRandomValues) under the hood. More information on the [getrandom](https://carates.io/getrandom/index.html#webassembly-support) crate.
