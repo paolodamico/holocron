@@ -106,7 +106,8 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Build
-        run: cargo build --lib --target ${{ matrix.target }} --features ${{ matrix.feature_flags }}
+        run: cargo build --lib --target ${{ matrix.target }} \
+              ${{ matrix.feature_flags && format('--features "{0}"', matrix.feature_flags) || '' }}
 
   deny:
     name: Cargo deny
