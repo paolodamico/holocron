@@ -9,8 +9,8 @@ use hpke::{
 };
 
 mod keys;
+mod rng;
 pub use keys::{PublicKey, SecretKey};
-use x_wing::CryptoRng;
 
 /// The KEM (Key Encapsulation Mechanism) used: X-Wing is chosen
 /// for its IND-CCA security. Reference: <https://eprint.iacr.org/2024/039.pdf>
@@ -82,20 +82,25 @@ impl PublicKey {
     /// - `info`: Optional application-supplied information. This is usually global
     ///   context (e.g. "a backup of X app"). The exact same `info` must be provided for sealing and unsealing,
     ///   otherwise unsealing will fail.
-    /// - `rng`: The CSPRNG provider.
     ///
     /// # Errors
-    /// Returns [`Error::Seal`] if HPKE encapsulation or AEAD sealing unexpectedly fails.
+    /// - [`Error::Rng`] if the operating system CSPRNG is unavailable.
+    /// - [`Error::InfoExceedsSize`] if `info` is larger than the permitted maximum.
+    /// - [`Error::Seal`] if HPKE encapsulation or AEAD sealing unexpectedly fails.
+    ///
+    /// # Panics
+    /// An unavailable OS CSPRNG is reported as [`Error::Rng`] via an internal
+    /// readiness check. A panic is only reachable in the residual window where
+    /// the CSPRNG passes that check and then fails mid-encapsulation.
     ///
     /// # Wire Format
     /// ```plaintext
     /// HEADER || ENCAPSULATED_KEY || CIPHERTEXT
     /// ```
-    pub fn seal<R: CryptoRng>(
+    pub fn seal(
         recipient: &PublicKey,
         plaintext: &[u8],
         info: Option<&[u8]>,
-        rng: &mut R,
     ) -> Result<Vec<u8>, Error> {
         if info.unwrap_or_default().len() > MAX_INFO_LEN {
             return Err(Error::InfoExceedsSize);
@@ -110,7 +115,7 @@ impl PublicKey {
             // (RFC 5116 authenticated buit not encrypted data) in this reference implementation because
             // the use cases it intends to cover warrant a global context (i.e. `info`).
             &[],
-            rng,
+            &mut rng::os_csprng()?,
         )?;
         let enc = enc.to_bytes();
         let mut out = Vec::with_capacity(HEADER_LEN + enc.len() + ciphertext.len());
@@ -205,6 +210,10 @@ pub enum Error {
     /// Sealing the message failed.
     #[error("seal unexpectedly failed")]
     Seal,
+    /// The operating system CSPRNG is unavailable, so no secure randomness
+    /// could be drawn.
+    #[error("operating system CSPRNG is unavailable")]
+    Rng,
     /// An HPKE state that this construction never produces. Critical library bug.
     #[error("internal critical bug")]
     Internal,
@@ -240,8 +249,7 @@ impl From<HpkeError> for Error {
 #[cfg(test)]
 mod tests {
     use super::{ENC_LEN, Error, HEADER, HEADER_LEN, MAX_INFO_LEN, PublicKey, SecretKey, VERSION};
-    use getrandom::SysRng;
-    use rand_core::UnwrapErr;
+    use std::collections::HashSet;
 
     /// `Poly-1305` authentication tag length
     ///
@@ -259,7 +267,7 @@ mod tests {
         let (sk, pk) = keypair(&[7u8; 32]);
         let msg: &[u8] = b"execute order 66";
 
-        let sealed = PublicKey::seal(&pk, msg, None, &mut UnwrapErr(SysRng)).unwrap();
+        let sealed = PublicKey::seal(&pk, msg, None).unwrap();
 
         let unsealed = SecretKey::unseal(&sk, &sealed, None).unwrap();
 
@@ -270,7 +278,7 @@ mod tests {
     fn roundtrips_empty_plaintext() {
         let (sk, pk) = keypair(&[0u8; 32]);
 
-        let sealed = PublicKey::seal(&pk, &[], None, &mut UnwrapErr(SysRng)).unwrap();
+        let sealed = PublicKey::seal(&pk, &[], None).unwrap();
         assert!(!sealed.is_empty());
 
         let unsealed = SecretKey::unseal(&sk, &sealed, None).unwrap();
@@ -284,7 +292,7 @@ mod tests {
         let msg: &[u8] = b"never tell me the odds";
         let info: &[u8] = b"com.example";
 
-        let sealed = PublicKey::seal(&pk, msg, Some(info), &mut UnwrapErr(SysRng)).unwrap();
+        let sealed = PublicKey::seal(&pk, msg, Some(info)).unwrap();
 
         let unsealed = SecretKey::unseal(&sk, &sealed, Some(info)).unwrap();
 
@@ -295,13 +303,7 @@ mod tests {
     fn unseal_fails_with_mismatched_info() {
         let (sk, pk) = keypair(&[4u8; 32]);
 
-        let sealed = PublicKey::seal(
-            &pk,
-            b"it's a trap",
-            Some(b"context-a"),
-            &mut UnwrapErr(SysRng),
-        )
-        .unwrap();
+        let sealed = PublicKey::seal(&pk, b"it's a trap", Some(b"context-a")).unwrap();
 
         assert_eq!(
             SecretKey::unseal(&sk, &sealed, Some(b"context-b")),
@@ -314,8 +316,7 @@ mod tests {
         let (_sk, pk) = keypair(&[1u8; 32]);
         let (other_sk, _other_pk) = keypair(&[2u8; 32]);
 
-        let sealed =
-            PublicKey::seal(&pk, b"for my eyes only", None, &mut UnwrapErr(SysRng)).unwrap();
+        let sealed = PublicKey::seal(&pk, b"for my eyes only", None).unwrap();
 
         assert_eq!(
             SecretKey::unseal(&other_sk, &sealed, None),
@@ -327,8 +328,7 @@ mod tests {
     fn unseal_fails_on_tampered_ciphertext() {
         let (sk, pk) = keypair(&[9u8; 32]);
 
-        let sealed =
-            PublicKey::seal(&pk, b"execute order 66", None, &mut UnwrapErr(SysRng)).unwrap();
+        let sealed = PublicKey::seal(&pk, b"execute order 66", None).unwrap();
 
         let mut tampered = sealed.clone();
         let last = tampered.len() - 1;
@@ -358,13 +358,7 @@ mod tests {
     fn unseal_rejects_truncated_encapsulated_key() {
         let (sk, pk) = keypair(&[6u8; 32]);
 
-        let sealed = PublicKey::seal(
-            &pk,
-            b"this message will self-destruct",
-            None,
-            &mut UnwrapErr(SysRng),
-        )
-        .unwrap();
+        let sealed = PublicKey::seal(&pk, b"this message will self-destruct", None).unwrap();
 
         // Valid header, but the encapsulated key is cut short.
         let truncated = &sealed[..HEADER_LEN + 10];
@@ -376,7 +370,7 @@ mod tests {
     fn unseal_rejects_unsupported_version() {
         let (sk, pk) = keypair(&[1u8; 32]);
 
-        let sealed = PublicKey::seal(&pk, b"hello there", None, &mut UnwrapErr(SysRng)).unwrap();
+        let sealed = PublicKey::seal(&pk, b"hello there", None).unwrap();
         let mut bad = sealed.clone();
         let bad_version = VERSION.wrapping_add(1);
         bad[0] = bad_version;
@@ -391,7 +385,7 @@ mod tests {
     fn unseal_rejects_unsupported_suite() {
         let (sk, pk) = keypair(&[1u8; 32]);
 
-        let sealed = PublicKey::seal(&pk, b"hello there", None, &mut UnwrapErr(SysRng)).unwrap();
+        let sealed = PublicKey::seal(&pk, b"hello there", None).unwrap();
         let mut bad = sealed.clone();
         bad[1] ^= 0xFF; // Corrupt a KEM ID byte
 
@@ -405,7 +399,7 @@ mod tests {
     fn seal_prepends_wire_header() {
         let (_sk, pk) = keypair(&[1u8; 32]);
 
-        let sealed = PublicKey::seal(&pk, b"hello there", None, &mut UnwrapErr(SysRng)).unwrap();
+        let sealed = PublicKey::seal(&pk, b"hello there", None).unwrap();
 
         assert_eq!(&sealed[..HEADER_LEN], &HEADER);
     }
@@ -415,7 +409,7 @@ mod tests {
         let (_sk, pk) = keypair(&[1u8; 32]);
         let msg: &[u8] = b"hello there";
 
-        let sealed = PublicKey::seal(&pk, msg, None, &mut UnwrapErr(SysRng)).unwrap();
+        let sealed = PublicKey::seal(&pk, msg, None).unwrap();
 
         // HEADER || ENCAPSULATED_KEY || len(plaintext + authentication tag)
         assert_eq!(sealed.len(), HEADER_LEN + ENC_LEN + msg.len() + TAG_LEN);
@@ -426,10 +420,32 @@ mod tests {
         let (_sk, pk) = keypair(&[1u8; 32]);
         let msg: &[u8] = b"same message";
 
-        let sealed = PublicKey::seal(&pk, msg, None, &mut UnwrapErr(SysRng)).unwrap();
-        let sealed2 = PublicKey::seal(&pk, msg, None, &mut UnwrapErr(SysRng)).unwrap();
+        let sealed = PublicKey::seal(&pk, msg, None).unwrap();
+        let sealed2 = PublicKey::seal(&pk, msg, None).unwrap();
 
         assert_ne!(sealed, sealed2);
+    }
+
+    /// Regression guard for encapsulation-randomness reuse: sealing the same
+    /// plaintext to the same recipient with the same `info` must draw fresh
+    /// X-Wing encapsulation randomness every call. A repeated encapsulated key
+    /// would mean a repeated AEAD key and base nonce (nonce reuse).
+    #[test]
+    fn seal_draws_fresh_encapsulation_randomness_each_call() {
+        let (_sk, pk) = keypair(&[1u8; 32]);
+        let msg: &[u8] = b"same message, same recipient, same info";
+        let info: &[u8] = b"com.example";
+
+        let mut enc_keys = HashSet::new();
+        for _ in 0..64 {
+            let sealed = PublicKey::seal(&pk, msg, Some(info)).unwrap();
+            let enc = sealed[HEADER_LEN..HEADER_LEN + ENC_LEN].to_vec();
+            assert!(
+                enc_keys.insert(enc),
+                "encapsulated key repeated: encapsulation randomness was reused"
+            );
+        }
+        assert_eq!(enc_keys.len(), 64);
     }
 
     #[test]
@@ -438,7 +454,7 @@ mod tests {
         let msg: &[u8] = b"boundary";
         let info = vec![0x2a; 2_usize.pow(16) - 5 - 1];
 
-        let sealed = PublicKey::seal(&pk, msg, Some(&info), &mut UnwrapErr(SysRng)).unwrap();
+        let sealed = PublicKey::seal(&pk, msg, Some(&info)).unwrap();
         let unsealed = SecretKey::unseal(&sk, &sealed, Some(&info)).unwrap();
 
         assert_eq!(unsealed, msg);
@@ -450,7 +466,7 @@ mod tests {
         let info = vec![0x2a; MAX_INFO_LEN + 1];
 
         assert_eq!(
-            PublicKey::seal(&pk, b"nope", Some(&info), &mut UnwrapErr(SysRng)),
+            PublicKey::seal(&pk, b"nope", Some(&info)),
             Err(Error::InfoExceedsSize)
         );
     }
@@ -458,7 +474,7 @@ mod tests {
     #[test]
     fn unseal_rejects_info_over_max_len() {
         let (sk, pk) = keypair(&[1u8; 32]);
-        let sealed = PublicKey::seal(&pk, b"nope", None, &mut UnwrapErr(SysRng)).unwrap();
+        let sealed = PublicKey::seal(&pk, b"nope", None).unwrap();
         let info = vec![0x2a; MAX_INFO_LEN + 1];
 
         assert_eq!(

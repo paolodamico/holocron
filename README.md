@@ -23,19 +23,24 @@ The name "Holocron" comes from following the Star Wars lore (Kyber, X-Wing, ...)
 
 ## Example
 
+The library owns its randomness: sealing and key generation draw from the
+operating system CSPRNG internally, so there is no RNG to pass in or misuse.
+
 ```rust
 use holocron::{SecretKey, PublicKey};
-use getrandom::SysRng;
-use rand_core::UnwrapErr;
 
-let sk = SecretKey::rand(&mut UnwrapErr(SysRng));
+let sk = SecretKey::generate().unwrap();
 let pk = sk.public_key();
 
 let msg: &[u8] = b"execute order 66";
 
-let sealed = PublicKey::seal(&pk, msg, None, &mut UnwrapErr(SysRng)).unwrap();
+let sealed = PublicKey::seal(&pk, msg, None).unwrap();
 
 let unsealed = SecretKey::unseal(&sk, &sealed, None).unwrap();
 
 assert_eq!(unsealed, msg);
 ```
+
+## Platform support
+
+Randomness comes from the operating system CSPRNG via [`getrandom`](https://docs.rs/getrandom). Particularly for the browser (`wasm32-unknown-unknown` target) an explicit backend must be specified for the randomness source. For web targets, enable the `wasm_js` feature flag which uses [`Crypto.getRandomValues`](https://www.w3.org/TR/WebCryptoAPI/#Crypto-method-getRandomValues) under the hood. More information on the [getrandom](https://carates.io/getrandom/index.html#webassembly-support) crate.
