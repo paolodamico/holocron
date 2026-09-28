@@ -187,7 +187,7 @@ impl SecretKey {
     ///
     /// # Errors
     /// - [`Error::EmptyCiphertext`] if the ciphertext is empty.
-    /// - [`Error::Decode`] if the ciphertext is invalid or the header is tampered with.
+    /// - [`Error::Decode`] if the ciphertext is too short or malformed.
     /// - [`Error::UnsupportedVersion`] if the header specifies an unsupported version.
     /// - [`Error::UnsupportedSuite`] if the header specifices an unsupported cryptographic suite.
     /// - [`Error::Unseal`] if the ciphertext cannot be unsealed.
