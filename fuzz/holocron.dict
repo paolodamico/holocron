@@ -5,7 +5,7 @@
 # fuzzer get past the header check and exercise the encapsulated-key parser and
 # AEAD open. Pass with:  cargo +nightly fuzz run unseal -- -dict=holocron.dict
 
-# Full header: VERSION(0x01) || KEM_ID(0x647a) || KDF_ID(0x0001) || AEAD_ID(0x0003)
+# Full header: VERSION(0x02) || KEM_ID(0x647a) || KDF_ID(0x0001) || AEAD_ID(0x0003)
 header="\x02\x64\x7a\x00\x01\x00\x03"
 version="\x02"
 kem_id_xwing="\x64\x7a"

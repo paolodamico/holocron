@@ -26,7 +26,7 @@ pub(crate) type Kdf = HkdfSha256;
 /// Internal wire format version. Applicable only to this implementation.
 ///
 /// Bumped when existing ciphertext can no longer be opened.
-const VERSION: u8 = 0x01;
+const VERSION: u8 = 0x02;
 /// The HPKE algorithm ID: X-Wing (ML-KEM-768 and X25519)
 ///
 /// The explicit ID (`0x647A`) is assigned in the [IANA HPKE KEM Identifiers Registry](https://www.iana.org/assignments/hpke/hpke.xhtml).
