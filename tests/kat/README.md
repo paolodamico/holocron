@@ -62,8 +62,8 @@ file is exactly what this process produces.
 | 4 | `all-byte-values-plaintext` | draft vector 1 | `04` × 64 | Every byte value `00`–`ff`. At 256 bytes it spans four ChaCha20 blocks. A second message to the key from vector 1. |
 | 5 | `info-longer-than-255-bytes` | draft vector 2 | `05` × 64 | 300-byte `info`. Catches `info` being cut to 255 bytes or fewer anywhere on the way to the key schedule. |
 | 6 | `all-zero-seed-and-eseed` | `00` × 32 | `00` × 64 | All-zero key seed and encapsulation randomness. |
-| 7 | `all-ones-seed-and-eseed` | `ff` × 32 | `ff` × 64 | Bitwise complement of vector 6. A bug that flips every seed bit turns one of these keys into the other. |
-| 8 | `plaintext-with-partial-final-block` | draft vector 3 | `08` × 64 | 1000-byte plaintext (byte `i` is `i mod 251`): 15 full ChaCha20 blocks and a 40-byte tail, so it covers the leftover handling after the 4- and 8-block parallel paths. |
+| 7 | `all-ones-seed-and-eseed` | `ff` × 32 | `ff` × 64 | All-ones key seed and encapsulation randomness, the bitwise complement of vector 6. |
+| 8 | `plaintext-with-partial-final-block` | draft vector 3 | `08` × 64 | 1000-byte plaintext (byte `i` is `i mod 251`): 15 full ChaCha20 blocks and a 40-byte tail, so it covers the leftover handling after the 4-block (x86_64 SSE2/AVX2) and 8-block (aarch64 NEON) parallel paths. CI runs these tests on x86_64 only. |
 
 Vectors 1–3 reuse the `seed` and `eseed` of the test vectors in
 [draft-connolly-cfrg-xwing-kem-06, Appendix C](https://datatracker.ietf.org/doc/html/draft-connolly-cfrg-xwing-kem-06#appendix-C).
@@ -99,7 +99,8 @@ catch bit-level corruption.
 Never edit or regenerate the stored outputs of an existing vector.
 
 - **`unseal_known_answers` fails:** the change can no longer open messages that
-  are already in storage. Fix the change. This includes dependency upgrades
+  are already in storage, or no longer accepts public keys that are already
+  published. Fix the change. This includes dependency upgrades
   (`hpke`, `x-wing`, `chacha20poly1305`) that land in `Cargo.lock`.
 - **Only `known_answers_are_reproducible` fails:** stored messages still open,
   but `generate` no longer produces them from their inputs. For example, an
