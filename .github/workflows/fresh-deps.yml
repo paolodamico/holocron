@@ -6,6 +6,9 @@ on:
   schedule:
     - cron: "17 6 * * 1"
   workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/fresh-deps.yml
 
 env:
   CARGO_TERM_COLOR: always
@@ -15,17 +18,26 @@ permissions:
 
 jobs:
   test:
-    name: Tests on newest dependencies (${{ matrix.runner }})
+    name: Tests on newest dependencies (${{ matrix.name }})
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     permissions:
       contents: read
 
     strategy:
       fail-fast: false
       matrix:
-        runner:
-          - ubuntu-latest
-          - ubuntu-24.04-arm
+        include:
+          - name: x86_64
+            runner: ubuntu-latest
+          - name: arm64
+            runner: ubuntu-24.04-arm
+          - name: portable 32-bit backends
+            runner: ubuntu-latest
+            rustflags: --cfg chacha20_backend="soft" --cfg curve25519_dalek_bits="32"
+
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags }}
 
     steps:
       - name: Checkout code
@@ -38,11 +50,34 @@ jobs:
         with:
           toolchain: stable
 
+      # Downstream crates with a newer rust-version than ours get versions our MSRV would skip.
       - name: Update to the newest compatible dependencies
-        run: cargo update --verbose
-        env:
-          # Downstream crates with a newer rust-version than ours get versions our MSRV would skip.
-          CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: allow
+        run: cargo update --verbose --ignore-rust-version
 
       - name: Run tests
         run: cargo test
+
+  # A scheduled failure otherwise only notifies whoever last edited the cron line.
+  report:
+    name: Open an issue on failure
+    needs: test
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write # open or comment on the tracking issue
+
+    steps:
+      - name: Open or update the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Tests fail on the newest compatible dependencies"
+          number=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body "Still failing: $RUN_URL"
+          else
+            gh issue create --title "$title" --body "The weekly fresh-dependency run failed: $RUN_URL. A new upstream release may break stored messages or downstream builds; see tests/kat/README.md."
+          fi

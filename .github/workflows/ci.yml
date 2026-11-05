@@ -73,12 +73,28 @@ jobs:
         run: |
           cargo build
 
-  # Opens the known-answer vectors with the aarch64 (NEON) backends that mobile senders use.
-  test-arm64:
-    name: Tests (arm64)
-    runs-on: ubuntu-24.04-arm
+  # Opens the known-answer vectors with the crypto backends that senders on other targets use.
+  test-backends:
+    name: Tests (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     permissions:
       contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # chacha20's NEON backend (iOS, aarch64 Android)
+          - name: arm64
+            runner: ubuntu-24.04-arm
+          # Portable chacha20 and 32-bit curve25519 arithmetic (armv7 Android, wasm32)
+          - name: portable 32-bit backends
+            runner: ubuntu-latest
+            rustflags: --cfg chacha20_backend="soft" --cfg curve25519_dalek_bits="32"
+
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags }}
 
     steps:
       - name: Checkout code
