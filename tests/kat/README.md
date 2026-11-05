@@ -52,10 +52,14 @@ file is exactly what this process produces.
 3. `SecretKey::unseal(sk, sealed, Some(info))` returns `plaintext`. When `info`
    is empty, `None` must work as well.
 
-CI runs these tests on every pull request, on x86_64 and on arm64, against
-`Cargo.lock`. The weekly `fresh-deps.yml` workflow runs them on both
-architectures against the newest semver-compatible dependencies, which is what
-downstream crates resolve.
+CI runs these tests on every pull request against `Cargo.lock`: on x86_64, on
+arm64, and with the portable ChaCha20 and 32-bit curve25519 backends that armv7
+and wasm32 use. The weekly `fresh-deps.yml` workflow runs the same set against
+the newest semver-compatible dependencies, which is what a downstream crate gets
+when it adds or updates holocron. A failed weekly run opens an issue.
+
+GitHub turns off scheduled workflows in a public repository after 60 days
+without activity. Re-enable it with `gh workflow enable fresh-deps.yml`.
 
 ## Coverage
 
@@ -68,7 +72,7 @@ downstream crates resolve.
 | 5 | `info-longer-than-255-bytes` | draft vector 2 | `05` × 64 | 300-byte `info`. Catches `info` being cut to 255 bytes or fewer anywhere on the way to the key schedule. |
 | 6 | `all-zero-seed-and-eseed` | `00` × 32 | `00` × 64 | All-zero key seed and encapsulation randomness. |
 | 7 | `all-ones-seed-and-eseed` | `ff` × 32 | `ff` × 64 | All-ones key seed and encapsulation randomness, the bitwise complement of vector 6. |
-| 8 | `plaintext-with-partial-final-block` | draft vector 3 | `08` × 64 | 1000-byte plaintext (byte `i` is `i mod 251`): 15 full ChaCha20 blocks and a 40-byte tail, so it covers the leftover handling after the 4-block (x86_64 SSE2/AVX2) and 8-block (aarch64 NEON) parallel paths. |
+| 8 | `plaintext-with-partial-final-block` | draft vector 3 | `08` × 64 | 1000-byte plaintext (byte `i` is `i mod 251`): 15 full ChaCha20 blocks and a 40-byte tail, so it covers the leftover handling after the 4-block (x86_64) and 8-block (aarch64 NEON) parallel paths and in the one-block portable backend. |
 
 Vectors 1–3 reuse the `seed` and `eseed` of the test vectors in
 [draft-connolly-cfrg-xwing-kem-06, Appendix C](https://datatracker.ietf.org/doc/html/draft-connolly-cfrg-xwing-kem-06#appendix-C).
@@ -107,10 +111,18 @@ Never edit or regenerate the stored outputs of an existing vector.
   are already in storage, or no longer accepts public keys that are already
   published. Fix the change. This includes dependency upgrades
   (`hpke`, `x-wing`, `chacha20poly1305`) that land in `Cargo.lock`.
-- **`unseal_known_answers` fails only in `fresh-deps.yml`:** a new upstream
-  release breaks stored messages for downstream users. The job's `cargo update`
-  log names the new versions. Exclude the release in `Cargo.toml` (for example
-  `hpke = ">=0.14, <0.14.2"`) and report it upstream.
+- **Only `fresh-deps.yml` fails:** a new upstream release breaks downstream
+  users: their stored messages if `unseal_known_answers` fails, their builds if
+  the crate doesn't compile. (A failure confined to a dev-dependency such as
+  `serde` doesn't reach them.) The job's `cargo update` log names the new
+  versions.
+  1. Exclude the release by narrowing `version` in that dependency's existing
+     `Cargo.toml` entry, for example `version = ">=0.14, <0.14.2"` for `hpke`.
+     If the culprit is transitive (`chacha20`, `ml-kem`, `curve25519-dalek`, ...),
+     add it as a direct dependency only to constrain its version.
+  2. Publish a holocron patch release, since downstream only sees the exclusion
+     from crates.io.
+  3. Report it upstream.
 - **Only `known_answers_are_reproducible` fails:** stored messages still open,
   but `generate` no longer produces them from their inputs. For example, an
   upgrade may consume `eseed` differently. Update `generate` and the
