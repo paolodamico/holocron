@@ -2,7 +2,7 @@ name: Fresh dependencies
 
 # Downstream crates resolve the newest semver-compatible dependencies rather than
 # this repository's Cargo.lock, so check that those still open the known-answer vectors.
-# A failed scheduled run notifies whoever last edited the cron line.
+# A failed scheduled run notifies whoever last edited the cron line or last re-enabled it.
 on:
   schedule:
     - cron: "17 6 * * 1"
@@ -34,13 +34,11 @@ jobs:
             runner: ubuntu-latest
           - name: arm64
             runner: ubuntu-24.04-arm
-          # rustc ignores unknown --cfg names: re-check these when chacha20, sha2 or
-          # curve25519-dalek bump their minor version.
           - name: portable 32-bit backends
             runner: ubuntu-latest
             rustflags: >-
-              --cfg chacha20_backend="soft" --cfg sha2_backend="soft"
-              --cfg curve25519_dalek_bits="32"
+              --cfg chacha20_backend="soft" --cfg poly1305_backend="soft"
+              --cfg sha2_backend="soft" --cfg curve25519_dalek_bits="32"
 
     env:
       RUSTFLAGS: ${{ matrix.rustflags }}
@@ -59,6 +57,13 @@ jobs:
       # Downstream crates with a newer rust-version than ours get versions our MSRV would skip.
       - name: Update to the newest compatible dependencies
         run: cargo update --verbose --ignore-rust-version
+
+      # rustc ignores unknown --cfg names, so fail if a version whose names these are changes.
+      - name: Check the backend cfg names still apply
+        if: matrix.rustflags
+        run: >-
+          cargo tree -e normal --depth 0
+          -i chacha20@0.10 -i poly1305@0.9 -i sha2@0.11 -i curve25519-dalek@5
 
       - name: Run tests
         run: cargo test

@@ -88,14 +88,12 @@ jobs:
           # chacha20's NEON backend (iOS, aarch64 Android)
           - name: arm64
             runner: ubuntu-24.04-arm
-          # Portable chacha20 and SHA-256, 32-bit curve25519 arithmetic (armv7 Android, wasm32).
-          # rustc ignores unknown --cfg names: re-check these when chacha20, sha2 or
-          # curve25519-dalek bump their minor version.
+          # Portable chacha20, Poly1305 and SHA-256, 32-bit curve25519 (armv7 Android, wasm32)
           - name: portable 32-bit backends
             runner: ubuntu-latest
             rustflags: >-
-              --cfg chacha20_backend="soft" --cfg sha2_backend="soft"
-              --cfg curve25519_dalek_bits="32"
+              --cfg chacha20_backend="soft" --cfg poly1305_backend="soft"
+              --cfg sha2_backend="soft" --cfg curve25519_dalek_bits="32"
 
     env:
       RUSTFLAGS: ${{ matrix.rustflags }}
@@ -110,6 +108,13 @@ jobs:
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable branch HEAD as of 2026-05-20 (https://github.com/dtolnay/rust-toolchain/tree/stable)
         with:
           toolchain: stable
+
+      # rustc ignores unknown --cfg names, so fail if a version whose names these are changes.
+      - name: Check the backend cfg names still apply
+        if: matrix.rustflags
+        run: >-
+          cargo tree -e normal --depth 0
+          -i chacha20@0.10 -i poly1305@0.9 -i sha2@0.11 -i curve25519-dalek@5
 
       - name: Run tests
         run: cargo test
