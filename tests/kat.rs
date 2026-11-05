@@ -97,65 +97,82 @@ fn generate(vector: &Vector) -> (Vec<u8>, Vec<u8>) {
     (pk.to_bytes().to_vec(), sealed)
 }
 
+/// Describes how `unseal` with `info` disagrees with the stored plaintext, if it does.
+fn unseal_mismatch(sk: &SecretKey, vector: &Vector, info: Option<&[u8]>) -> Option<String> {
+    let name = &vector.name;
+    let call = if info.is_some() { "Some(info)" } else { "None" };
+    match SecretKey::unseal(sk, &vector.sealed, info) {
+        Ok(plaintext) if plaintext == vector.plaintext => None,
+        Ok(_) => Some(format!(
+            "{name}: unseal with {call} returned a different plaintext"
+        )),
+        Err(err) => Some(format!("{name}: unseal with {call} failed: {err}")),
+    }
+}
+
+/// Checks every vector and reports all failures at once, so a change that breaks
+/// only some of them (say, those with `info`) shows the pattern.
 #[test]
 fn unseal_known_answers() {
+    let mut failures = Vec::new();
     for vector in vectors() {
         let name = &vector.name;
         let sk = SecretKey::from_seed(&vector.seed);
         let pk = sk.public_key();
 
-        assert!(
-            pk.to_bytes() == vector.public_key,
-            "{name}: seed no longer derives the stored public key"
-        );
-        assert!(
-            PublicKey::from_bytes(&vector.public_key) == Ok(pk),
-            "{name}: stored public key no longer parses to the derived key"
-        );
-        assert_eq!(
-            SecretKey::unseal(&sk, &vector.sealed, Some(&vector.info)),
-            Ok(vector.plaintext.clone()),
-            "{name}: stored message no longer unseals"
-        );
+        if pk.to_bytes() != vector.public_key {
+            failures.push(format!(
+                "{name}: seed no longer derives the stored public key"
+            ));
+        }
+        if PublicKey::from_bytes(&vector.public_key) != Ok(pk) {
+            failures.push(format!(
+                "{name}: stored public key no longer parses to the derived key"
+            ));
+        }
+        failures.extend(unseal_mismatch(&sk, &vector, Some(&vector.info)));
         if vector.info.is_empty() {
-            assert_eq!(
-                SecretKey::unseal(&sk, &vector.sealed, None),
-                Ok(vector.plaintext.clone()),
-                "{name}: absent info must equal empty info"
-            );
+            failures.extend(unseal_mismatch(&sk, &vector, None));
         }
     }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 /// The stored outputs are exactly what `generate` computes from the stored
 /// inputs, so anyone can rebuild and audit the file from its inputs alone.
 #[test]
 fn known_answers_are_reproducible() {
+    let mut failures = Vec::new();
     for vector in vectors() {
         let (public_key, sealed) = generate(&vector);
-
-        assert!(
-            public_key == vector.public_key,
-            "{}: generated public key differs from the stored one",
-            vector.name
-        );
-        assert!(
-            sealed == vector.sealed,
-            "{}: generated sealed message differs from the stored one",
-            vector.name
-        );
+        if public_key != vector.public_key || sealed != vector.sealed {
+            failures.push(vector.name);
+        }
     }
+    assert!(
+        failures.is_empty(),
+        "stored outputs no longer reproduce from their inputs: {}",
+        failures.join(", ")
+    );
 }
 
 /// Fills `public_key` and `sealed` for vectors that have neither, then rewrites
-/// `kat/vectors.json`. Outputs already in the file are never touched.
+/// `kat/vectors.json`. Refuses to write if any existing vector no longer
+/// reproduces, and never touches outputs already in the file.
 #[test]
 #[ignore = "rewrites tests/kat/vectors.json; run only when adding vectors"]
 fn fill_new_vectors() {
     let mut vectors = vectors();
     for vector in &mut vectors {
+        let (public_key, sealed) = generate(vector);
         if vector.public_key.is_empty() && vector.sealed.is_empty() {
-            (vector.public_key, vector.sealed) = generate(vector);
+            (vector.public_key, vector.sealed) = (public_key, sealed);
+        } else {
+            assert!(
+                public_key == vector.public_key && sealed == vector.sealed,
+                "{}: existing vector no longer reproduces; fix `generate` first",
+                vector.name
+            );
         }
     }
 
