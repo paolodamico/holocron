@@ -39,7 +39,7 @@ jobs:
         run: cargo fmt -- --check
 
       - name: Run clippy
-        run: cargo clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
   test:
     name: Tests
@@ -72,6 +72,27 @@ jobs:
       - name: Build non-default features
         run: |
           cargo build
+
+  # Opens the known-answer vectors with the aarch64 (NEON) backends that mobile senders use.
+  test-arm64:
+    name: Tests (arm64)
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2 (https://github.com/actions/checkout/releases/tag/v6.0.2)
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable branch HEAD as of 2026-05-20 (https://github.com/dtolnay/rust-toolchain/tree/stable)
+        with:
+          toolchain: stable
+
+      - name: Run tests
+        run: cargo test
 
   cross:
     name: Cross-compile (${{ matrix.target }})
