@@ -53,11 +53,11 @@ file is exactly what this process produces.
    is empty, `None` must work as well.
 
 CI runs these tests on every pull request against `Cargo.lock`: on x86_64, on
-arm64, and with the portable ChaCha20, SHA-256 and 32-bit curve25519 backends
-that armv7 and wasm32 use. The weekly `fresh-deps.yml` workflow runs the same
-set against the newest semver-compatible dependencies, which is what a
+arm64, and with the portable ChaCha20, Poly1305, SHA-256 and 32-bit curve25519
+backends that armv7 and wasm32 use. The weekly `fresh-deps.yml` workflow runs
+the same set against the newest semver-compatible dependencies, which is what a
 downstream crate gets when it adds or updates holocron. A failed weekly run
-notifies whoever last edited its schedule.
+notifies whoever last edited its schedule, or whoever last re-enabled it.
 
 GitHub turns off scheduled workflows in a public repository after 60 days
 without activity. Re-enable it with `gh workflow enable fresh-deps.yml`.
@@ -121,14 +121,19 @@ Never edit or regenerate the stored outputs of an existing vector.
      `Cargo.toml` entry, for example `version = ">=0.14, <0.14.2"` for `hpke`.
      If the culprit is transitive (`chacha20`, `ml-kem`, `curve25519-dalek`, ...),
      add it as a direct dependency only to constrain its version. Changing
-     `Cargo.toml` reruns `fresh-deps.yml` on the pull request.
+     `Cargo.toml` reruns `fresh-deps.yml` on the pull request, as long as the
+     workflow is enabled (`gh workflow view fresh-deps.yml`).
   2. Publish a holocron patch release, since downstream only sees the exclusion
      from crates.io.
   3. Report it upstream.
+  4. Once upstream ships a fix, remove the cap and any dependency added only to
+     constrain a version, then release again.
 - **Only `known_answers_are_reproducible` fails, in either workflow:** stored messages still open,
   but `generate` no longer produces them from their inputs. For example, an
   upgrade may consume `eseed` differently. Update `generate` and the
   [Generation](#generation) section until the stored outputs reproduce again.
+  If the failure came from `fresh-deps.yml`, bump that crate in the same pull
+  request (`cargo update -p <crate>`) so pull-request CI tests the new version.
 
 Dropping support for a format is a deliberate breaking change: bump `VERSION` in
 `src/lib.rs` in a PR of its own. That makes every `0x02` vector fail with
