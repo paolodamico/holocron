@@ -1,0 +1,48 @@
+name: Fresh dependencies
+
+# Downstream crates resolve the newest semver-compatible dependencies rather than
+# this repository's Cargo.lock, so check that those still open the known-answer vectors.
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests on newest dependencies (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - ubuntu-latest
+          - ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2 (https://github.com/actions/checkout/releases/tag/v6.0.2)
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable branch HEAD as of 2026-05-20 (https://github.com/dtolnay/rust-toolchain/tree/stable)
+        with:
+          toolchain: stable
+
+      - name: Update to the newest compatible dependencies
+        run: cargo update --verbose
+        env:
+          # Downstream crates with a newer rust-version than ours get versions our MSRV would skip.
+          CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: allow
+
+      - name: Run tests
+        run: cargo test
