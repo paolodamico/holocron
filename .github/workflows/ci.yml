@@ -88,10 +88,14 @@ jobs:
           # chacha20's NEON backend (iOS, aarch64 Android)
           - name: arm64
             runner: ubuntu-24.04-arm
-          # Portable chacha20 and 32-bit curve25519 arithmetic (armv7 Android, wasm32)
+          # Portable chacha20 and SHA-256, 32-bit curve25519 arithmetic (armv7 Android, wasm32).
+          # rustc ignores unknown --cfg names: re-check these when chacha20, sha2 or
+          # curve25519-dalek bump their minor version.
           - name: portable 32-bit backends
             runner: ubuntu-latest
-            rustflags: --cfg chacha20_backend="soft" --cfg curve25519_dalek_bits="32"
+            rustflags: >-
+              --cfg chacha20_backend="soft" --cfg sha2_backend="soft"
+              --cfg curve25519_dalek_bits="32"
 
     env:
       RUSTFLAGS: ${{ matrix.rustflags }}
