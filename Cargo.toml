@@ -2,7 +2,7 @@
 name = "holocron"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.87"
 license = "MIT"
 description = "Reference implementation of an anonymous sealed box with a post-quantum hybrid KEM (ML-KEM + X25519)"
 exclude = ["header-full.jpg"]
@@ -14,6 +14,13 @@ hpke = { version = "0.14", default-features = false, features = ["alloc", "chach
 thiserror = "2"
 x-wing = { version = "0.1", features = ["zeroize"] }
 zeroize = "1"
+# hpke forwards no zeroize features to its ChaCha20-Poly1305 and HKDF-SHA256 dependencies. These
+# enable them by feature unification, so the AEAD key, keystream buffer, Poly1305 MAC key and
+# HMAC-SHA256 key state are wiped on drop.
+chacha20poly1305 = { version = "0.11", default-features = false, features = ["zeroize"] }
+cipher = { version = "0.5", features = ["zeroize"] }
+poly1305 = { version = "0.9", features = ["zeroize"] }
+sha2 = { version = "0.11", default-features = false, features = ["zeroize"] }
 
 [dev-dependencies]
 hex = "0.4"
