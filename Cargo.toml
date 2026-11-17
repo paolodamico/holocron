@@ -14,9 +14,7 @@ hpke = { version = "0.14", default-features = false, features = ["alloc", "chach
 thiserror = "2"
 x-wing = { version = "0.1", features = ["zeroize"] }
 zeroize = "1"
-# hpke forwards no zeroize features to its ChaCha20-Poly1305 and HKDF-SHA256 dependencies. These
-# enable them by feature unification, so the AEAD key, keystream buffer, Poly1305 MAC key and
-# HMAC-SHA256 key state are wiped on drop.
+# Explicit dependencies to enable zeroize
 chacha20poly1305 = { version = "0.11", default-features = false, features = ["zeroize"] }
 cipher = { version = "0.5", features = ["zeroize"] }
 poly1305 = { version = "0.9", features = ["zeroize"] }
