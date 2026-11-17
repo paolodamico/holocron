@@ -4,6 +4,12 @@ ignore = []
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# A second copy of these would not get the zeroize feature Cargo.toml enables on them.
+deny = [
+    { crate = "cipher", deny-multiple-versions = true },
+    { crate = "poly1305", deny-multiple-versions = true },
+    { crate = "sha2", deny-multiple-versions = true },
+]
 
 [licenses]
 allow = [

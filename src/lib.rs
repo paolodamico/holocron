@@ -23,6 +23,13 @@ pub(crate) type Aead = ChaCha20Poly1305;
 /// matches the 128-bit (NIST PQC Level 1) target of the X-Wing KEM.
 pub(crate) type Kdf = HkdfSha256;
 
+/// Statically assert the AEAD cipher and the hash behind HKDF wipe their key material on drop
+const _: fn() = || {
+    fn assert_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+    assert_zeroize_on_drop::<<Aead as hpke::aead::Aead>::AeadImpl>();
+    assert_zeroize_on_drop::<sha2::Sha256>();
+};
+
 /// Internal wire format version. Applicable only to this implementation.
 ///
 /// Bumped when existing ciphertext can no longer be opened.
